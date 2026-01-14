@@ -39,33 +39,68 @@ def safe_stop_image_writer(func):
 
 
 def image_array_to_pil_image(image_array: np.ndarray, range_check: bool = True) -> PIL.Image.Image:
-    # TODO(aliberts): handle 1 channel and 4 for depth images
-    if image_array.ndim != 3:
-        raise ValueError(f"The array has {image_array.ndim} dimensions, but 3 is expected for an image.")
+    # Ensure image_array is C, H, W or H, W, C or H, W.
+    # Convert to H, W, C or H, W for PIL.Image.fromarray
+    
+    mode = None
+    if image_array.ndim == 3:
+        # Check for C, H, W convention
+        # A common heuristic is if the first dimension is 1, 3, or 4 and it's much smaller than H, W.
+        # Given our data, (3, H, W) for RGB and (1, H, W) for depth.
+        if image_array.shape[0] == 3: # RGB (C, H, W)
+            image_array = image_array.transpose(1, 2, 0) # H, W, C
+            mode = 'RGB'
+        elif image_array.shape[0] == 1: # Depth (C, H, W) -> (H, W)
+            image_array = image_array.squeeze(0) # H, W
+            if image_array.dtype == np.uint16:
+                mode = 'I;16'
+            elif image_array.dtype == np.uint8:
+                mode = 'L'
+        elif image_array.shape[-1] == 3: # RGB (H, W, C)
+            mode = 'RGB'
+        elif image_array.shape[-1] == 1: # Depth (H, W, C) -> (H, W)
+            image_array = image_array.squeeze(-1) # H, W
+            if image_array.dtype == np.uint16:
+                mode = 'I;16'
+            elif image_array.dtype == np.uint8:
+                mode = 'L'
+        else:
+            raise ValueError(f"Unsupported 3D image shape/channel count: {image_array.shape}")
+    elif image_array.ndim == 2: # Grayscale/Depth (H, W)
+        if image_array.dtype == np.uint16:
+            mode = 'I;16'
+        elif image_array.dtype == np.uint8:
+            mode = 'L'
+        else:
+            raise ValueError(f"Unsupported 2D image dtype for PIL: {image_array.dtype}. Expected uint8 or uint16.")
+    else:
+        raise ValueError(f"The array has {image_array.ndim} dimensions, but 2 or 3 are expected for an image.")
 
-    if image_array.shape[0] == 3:
-        # Transpose from pytorch convention (C, H, W) to (H, W, C)
-        image_array = image_array.transpose(1, 2, 0)
-
-    elif image_array.shape[-1] != 3:
-        raise NotImplementedError(
-            f"The image has {image_array.shape[-1]} channels, but 3 is required for now."
-        )
-
-    if image_array.dtype != np.uint8:
+    # Handle float images if they should be converted to uint8 for saving
+    # Our depth images are uint16, RGB are uint8, so this part might not be needed for current use case.
+    if image_array.dtype == np.float32 or image_array.dtype == np.float64:
         if range_check:
             max_ = image_array.max().item()
             min_ = image_array.min().item()
-            if max_ > 1.0 or min_ < 0.0:
-                raise ValueError(
+            # This check is primarily for float -> uint8 conversion where expected range is [0,1]
+            # For depth values, the range is typically much larger, so this check may not apply.
+            if mode == 'RGB' and (max_ > 1.0 or min_ < 0.0):
+                 raise ValueError(
                     "The image data type is float, which requires values in the range [0.0, 1.0]. "
                     f"However, the provided range is [{min_}, {max_}]. Please adjust the range or "
                     "provide a uint8 image with values in the range [0, 255]."
                 )
+        # Convert float to uint8 for RGB if mode is RGB and data is float (assuming 0-1 range)
+        if mode == 'RGB':
+            image_array = (image_array * 255).astype(np.uint8)
+        else: # For other float modes (e.g., if we were to support float grayscale)
+            # PIL fromarray can handle float, but for specific modes it might need scaling/conversion
+            pass
 
-        image_array = (image_array * 255).astype(np.uint8)
+    if mode is None:
+        raise ValueError(f"Could not determine PIL mode for image with shape {image_array.shape} and dtype {image_array.dtype}")
 
-    return PIL.Image.fromarray(image_array)
+    return PIL.Image.fromarray(image_array, mode=mode)
 
 
 def write_image(image: np.ndarray | PIL.Image.Image, fpath: Path, compress_level: int = 1):

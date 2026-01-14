@@ -30,3 +30,4 @@ def visualize_pusht_env():
 
 if __name__ == '__main__':
     visualize_pusht_env()
+

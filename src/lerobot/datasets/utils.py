@@ -385,9 +385,12 @@ def load_episodes(local_dir: Path) -> datasets.Dataset:
 
 
 def load_image_as_numpy(
-    fpath: str | Path, dtype: np.dtype = np.float32, channel_first: bool = True
+    fpath: str | Path,
+    dtype: np.dtype = np.float32,
+    channel_first: bool = True,
+    pil_mode: str | None = None, # 새로운 파라미터 추가
 ) -> np.ndarray:
-    """Load an image from a file into a numpy array.
+    """Load an image from a file into a numpy array, with optional PIL mode conversion.
 
     Args:
         fpath (str | Path): Path to the image file.
@@ -395,16 +398,26 @@ def load_image_as_numpy(
             pixels are scaled to [0, 1].
         channel_first (bool): If True, converts the image to (C, H, W) format.
             Otherwise, it remains in (H, W, C) format.
+        pil_mode (str | None): Optional PIL image mode to convert to (e.g., 'RGB', 'L', 'I;16').
+                               If None, no explicit convert() call is made after opening.
 
     Returns:
         np.ndarray: The image as a numpy array.
     """
-    img = PILImage.open(fpath).convert("RGB")
+    img = PILImage.open(fpath) # convert("RGB") 제거
+    if pil_mode: # 새로운 파라미터가 지정되면 해당 모드로 변환
+        img = img.convert(pil_mode)
+
     img_array = np.array(img, dtype=dtype)
-    if channel_first:  # (H, W, C) -> (C, H, W)
-        img_array = np.transpose(img_array, (2, 0, 1))
+    if channel_first:  # (H, W, C) -> (C, H, W) 또는 (H, W) -> (1, H, W)
+        if img_array.ndim == 3:
+            img_array = np.transpose(img_array, (2, 0, 1))
+        elif img_array.ndim == 2: # 단일 채널 이미지의 경우 (H, W) -> (1, H, W)
+            img_array = np.expand_dims(img_array, axis=0)
+
     if np.issubdtype(dtype, np.floating):
-        img_array /= 255.0
+        if img_array.max() > 1.0: # 0-255 범위의 이미지를 0-1 범위로 스케일링
+            img_array /= 255.0
     return img_array
 
 

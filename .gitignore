@@ -177,3 +177,7 @@ outputs/
 *.urdf
 *.xml
 *.part
+
+/custom_dataset
+/custom_dataset_2
+/custom_lerobot_dataset
